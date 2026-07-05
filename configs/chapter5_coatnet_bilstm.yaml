@@ -1,0 +1,118 @@
+# ============================================================
+# 第5章：融合通道注意力机制CoAtNet-BiLSTM滚动轴承故障诊断方法
+# 论文位置：第50-63页
+# ============================================================
+
+# --- 数据集 ---
+dataset:
+  name: "Paderborn"                  # 德国帕德博恩数据集 (论文p.56)
+  data_dir: "???"                    # 帕德博恩数据根目录
+  sample_freq: 64000                 # 64kHz (论文p.56)
+  num_classes: 5                     # 4种故障 + 正常 (论文表5.1)
+  train_ratio: 0.6                   # 6:2:2划分 (论文p.57)
+  val_ratio: 0.2
+  test_ratio: 0.2
+  samples_per_class: 800             # 每类800样本 (论文表5.1)
+
+  labels:
+    0: "外圈电火花加工损伤"
+    1: "外圈钻孔加工损伤"
+    2: "内圈点蚀损伤"
+    3: "内圈电刻加工损伤"
+    4: "正常"
+
+# --- 信号预处理 ---
+preprocessing:
+  # VMD 变分模态分解 (论文p.54, 5.2.6节)
+  vmd:
+    enabled: true
+    K: "???"                         # ⚠️ 模态数，论文说"参考了文献[98]"
+    alpha: "???"                     # ⚠️ 惩罚因子，需查文献[98]
+    tau: 0.0
+    DC: 0
+    init: 1
+    tol: 1.0e-7
+  # FFT 快速傅里叶变换 (论文p.54, 式5.11)
+  fft:
+    enabled: true
+    n_fft: "???"                     # FFT点数，论文未明确
+  # 信号分段
+  signal:
+    segment_length: 1024             # 每段长度（论文未明确，合理默认值）
+
+# --- 模型超参数 ---
+model:
+  name: "CoAtNetAMBiLSTM"
+  # CoAtNet分支 (论文p.52-53, 图5.3)
+  coatnet:
+    # Stage配置: S0→S1(MBConv)→S2(MBConv)→S3(Rel-Attn)→S4(Rel-Attn)
+    stages:
+      - name: "S0"                   # 下采样块
+        type: "conv1d"
+        out_channels: 64
+        kernel_size: 3
+        stride: 2
+      - name: "S1"                   # MBConv Block
+        type: "mbconv"
+        out_channels: 96
+        expand_ratio: 4
+        kernel_size: 3
+      - name: "S2"                   # MBConv Block
+        type: "mbconv"
+        out_channels: 192
+        expand_ratio: 4
+        kernel_size: 3
+      - name: "S3"                   # Relative Attention Block
+        type: "rel_attention"
+        out_channels: 384
+        num_heads: 8
+      - name: "S4"                   # Relative Attention Block
+        type: "rel_attention"
+        out_channels: 768
+        num_heads: 12
+    # 全局最大池化后特征维度
+    global_pool: "max"
+
+  # ECA-BiLSTM分支 (论文p.51 图5.1, p.52 图5.2)
+  eca_bilstm:
+    conv1d_channels: 16              # 1×1×16卷积层 (论文p.55)
+    eca_kernel_size: 3               # ECA-net的k值 (论文p.51)
+    bilstm_hidden_size: 128          # BiLSTM隐藏层维度（论文未明确）
+    bilstm_num_layers: 2             # BiLSTM层数
+    bilstm_dropout: 0.0
+
+  # 交叉注意力融合 (论文p.53-54)
+  cross_attention:
+    num_heads: 8
+    dropout: 0.1
+
+  # 分类头
+  num_classes: 5
+  classifier_dropout: 0.5
+
+# --- 训练超参数 ---
+training:
+  optimizer: "adam"
+  learning_rate: 0.001               # 与第3/4章保持一致推断
+  batch_size: 32                     # 与第4章保持一致推断
+  epochs: 50                         # 论文p.57
+  loss: "cross_entropy"
+  weight_decay: 1.0e-4
+  # 早停
+  early_stopping:
+    enabled: true
+    patience: 10
+    monitor: "val_loss"
+
+# --- 噪声鲁棒性实验 (论文p.61) ---
+noise_experiment:
+  enabled: false                     # 设为true启用
+  snr_levels: [-6, -4, -2, 0]       # 信噪比 dB (论文p.61)
+
+# --- 评估 ---
+evaluation:
+  metrics: ["accuracy", "precision", "recall", "f1"]
+  t_sne:
+    enabled: true
+    perplexity: 30
+  confusion_matrix: true

@@ -1,0 +1,97 @@
+# ============================================================
+# 第4章：基于改进GAF与Swin-Transformer的轴承故障诊断方法
+# 论文位置：第39-49页
+# ============================================================
+
+# --- 数据集 ---
+dataset:
+  name: "CWRU"
+  data_dir: "???"                    # CWRU数据根目录
+  # 论文p.45: 转速1772rpm (对应1HP工况), 采样频率12kHz
+  load_condition: 1                  # 1HP工况 (论文p.45)
+  sample_freq: 12000
+  samples_per_file: 120000           # 每组故障信号120000数据点 (论文p.45)
+  num_classes: 10                    # 10类 (论文表4.1)
+  train_ratio: 0.7                   # 7:2:1划分 (论文p.43)
+  val_ratio: 0.2
+  test_ratio: 0.1
+
+  labels:
+    0: "正常_N"
+    1: "内圈故障_0.1778mm_IF18"
+    2: "内圈故障_0.3556mm_BF18"
+    3: "内圈故障_0.5334mm_OF18"
+    4: "外圈故障_0.1778mm_IF36"
+    5: "外圈故障_0.3556mm_BF36"
+    6: "外圈故障_0.5334mm_OF36"
+    7: "滚动体故障_0.1778mm_IF53"
+    8: "滚动体故障_0.3556mm_BF53"
+    9: "滚动体故障_0.5334mm_OF53"
+
+# --- 信号预处理 ---
+preprocessing:
+  # PAA 分段聚合近似 (论文p.40-41, 式4.3)
+  paa:
+    enabled: true
+    segments: "???"                  # ⚠️ 分段数m论文未明确，需实验确定
+  # GAF 格拉姆角场 (论文p.40, 式4.1-4.2)
+  gaf:
+    method: "summation"              # GASF (Gramian Angular Summation Field)
+    image_size: "???"                # ⚠️ 编码后图像尺寸论文未明确
+  # 最终输入模型图像参数
+  image:
+    size: 64                         # 假定resize到64×64（论文未明确）
+    channels: 3                      # 转为3通道适配Swin-T预训练
+
+# --- 模型超参数 (论文p.41-43) ---
+model:
+  name: "PGAFSwin"
+  # Swin-Transformer 配置
+  swin:
+    variant: "tiny"                  # Swin-T (论文未明确变体，按常规选Tiny)
+    patch_size: 4                    # Patch Partition 的patch尺寸
+    window_size: 7                   # 窗口多头自注意力窗口大小
+    embed_dim: 96                    # Swin-T 默认
+    depths: [2, 2, 6, 2]            # 各stage的Block数 (Swin-T)
+    num_heads: [3, 6, 12, 24]       # 各stage注意力头数 (Swin-T)
+    mlp_ratio: 4.0
+    drop_rate: 0.0
+    attn_drop_rate: 0.0
+    drop_path_rate: 0.1
+  num_classes: 10
+
+# --- 训练超参数 (论文p.45) ---
+training:
+  optimizer: "adam"
+  learning_rate: 0.001               # 论文p.45
+  batch_size: 32                     # 论文p.45
+  epochs: 100                        # 论文未明确epoch数，设足够用早停
+  loss: "cross_entropy"              # 交叉熵损失 (论文p.45)
+  weight_decay: 0.05                 # Swin-T常规值，论文未明确
+  # 早停 (论文p.43 提到早停机制)
+  early_stopping:
+    enabled: true
+    patience: 15
+    monitor: "val_loss"
+
+# --- 评估 ---
+evaluation:
+  metrics: ["accuracy", "precision", "recall", "f1"]
+  t_sne:
+    enabled: true
+    perplexity: 30
+  confusion_matrix: true
+
+# --- 消融实验配置 (论文p.48-49) ---
+ablation:
+  # 对比的编码方式
+  compare_encodings:
+    - "PGAF"       # 本章方法 (PAA + GAF)
+    - "GAF"        # 无PAA优化
+    - "STFT"       # 短时傅里叶变换时频图
+    - "WPD"        # 小波包分解
+    - "gray_texture"  # 灰度纹理图
+  # 对比的网络结构
+  compare_networks:
+    - "Swin"       # 本章方法
+    - "ResNext"    # 替换为ResNext

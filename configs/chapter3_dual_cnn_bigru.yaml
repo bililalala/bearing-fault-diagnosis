@@ -1,0 +1,86 @@
+# ============================================================
+# 第3章：基于双通道大核CNN和BIGRU的轴承故障诊断方法
+# 论文位置：第27-38页
+# ============================================================
+
+# --- 数据集 ---
+dataset:
+  name: "CWRU"
+  # CWRU 12kHz 驱动端(DE)数据
+  data_dir: "???"                    # 用户指定：CWRU数据根目录
+  sample_freq: 12000                 # 采样频率 Hz
+  signal_length: 102400              # 原始信号提取长度 N (论文p.33)
+  window_size: 1024                  # 每个样本长度（由 N/s 推导，论文未直接给出）
+  sliding_step: 500                  # 滑动步长 s (论文p.33, 式3.7)
+  samples_per_class: 200             # 每类样本数 (论文p.33 表3.1)
+  train_ratio: 0.7                   # 训练集比例 7:3 (论文p.33)
+  num_classes: 10                    # 9种故障 + 正常
+  load_conditions: [0, 1, 2, 3]      # 工况: 0HP/1HP/2HP/3HP
+
+  # 类别标签映射 (论文表3.1)
+  labels:
+    0: "正常"
+    1: "内圈故障_0.007inch"
+    2: "内圈故障_0.014inch"
+    3: "内圈故障_0.021inch"
+    4: "外圈故障_0.007inch"
+    5: "外圈故障_0.014inch"
+    6: "外圈故障_0.021inch"
+    7: "滚动体故障_0.007inch"
+    8: "滚动体故障_0.014inch"
+    9: "滚动体故障_0.021inch"
+
+# --- 小样本实验设置 (论文p.35-37) ---
+few_shot:
+  enabled: false                      # 设为 true 启用小样本对比实验
+  alpha: 0.1                         # 训练样本比例：0.1, 0.2, 0.4, 0.5, 0.7
+
+# --- 模型超参数 ---
+model:
+  name: "DualCNNBiGRU"
+  # 双通道大核CNN (论文p.28-29 图3.2)
+  conv_block1:
+    kernel_size: 31                  # 大卷积核 1×31 (论文p.29)
+    out_channels: 64                 # 输出通道数（论文未明确，合理默认值）
+    num_layers: 2                    # Conv Block 1 卷积层数
+  conv_block2:
+    kernel_size: 6                   # 小卷积核 1×6 (论文p.29)
+    out_channels: 64
+    num_blocks: 3                    # Conv Block 2.1/2.2/2.3 三个模块 (论文p.29)
+    num_layers_per_block: 2          # 每模块2层卷积
+  # BiGRU (论文p.30 图3.3)
+  bigru:
+    hidden_size: 128                 # 隐藏层维度（论文未明确）
+    num_layers: 2                    # GRU层数
+    bidirectional: true
+    dropout: 0.0                     # 论文未提dropout
+  # 注意力机制 (论文p.31 式3.4)
+  attention:
+    type: "soft"                     # 软注意力 (论文p.31)
+  # 分类头
+  classifier:
+    dropout_rate: 0.5                # 论文未明确，常用默认值
+
+# --- 训练超参数 (论文p.31-32) ---
+training:
+  optimizer: "adam"
+  learning_rate: 0.001               # 论文p.31
+  batch_size: 64                     # 论文p.31
+  epochs: 5                          # 论文p.31
+  loss: "label_smoothing"            # LSR标签平滑正则化 (论文p.31 式3.6)
+  label_smoothing_alpha: "???"       # ⚠️ 平滑参数α论文未明确给出，需实验确定
+  weight_decay: 0.0                  # 论文未提
+  grad_clip: null                    # 论文未提
+  # 早停 (论文未明确提及，用于实际训练)
+  early_stopping:
+    enabled: true
+    patience: 10
+    monitor: "val_loss"
+
+# --- 评估 ---
+evaluation:
+  metrics: ["accuracy", "precision", "recall", "f1"]
+  t_sne:
+    enabled: true
+    perplexity: 30
+  confusion_matrix: true
